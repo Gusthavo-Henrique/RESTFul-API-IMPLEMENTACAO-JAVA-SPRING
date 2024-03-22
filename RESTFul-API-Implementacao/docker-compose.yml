@@ -1,0 +1,36 @@
+version: '3.9'
+
+services:
+  db:
+    image: postgres
+    restart: always
+    environment:
+      TZ: America/Sao_Paulo
+      POSTGRES_PASSWORD: 99889688
+      POSTGRES_DB: api_web_books_database
+    ports:
+      - 5432:5432
+    networks:
+      - gusthavo-network
+
+  restful-api-implementacao:
+    image: gusthavomonteiro/restful-api-implementacao
+    restart: always
+    build: ./restful-api-implementacao
+    working_dir: /restful-api-implementacao
+    environment:
+      TZ: America/Sao_Paulo
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/api_web_books_database?useTimeZone=true&ServerTimezone=UTC-8
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: 99889688
+    ports:
+      - 80:80
+    command: mvn spring-boot:run
+    depends_on:
+      - db
+    networks:
+      - gusthavo-network
+
+networks:
+  gusthavo-network:
+    driver: bridge

@@ -1,0 +1,22 @@
+server:
+  port: 80
+cors:
+  originPatterns: http://localhost:80
+security:
+  jwt:
+    token:
+      secret-key: secret
+      expire-length: 3600000
+spring:
+  datasource:
+    username: postgres
+    password: 99889688
+    url: jdbc:postgresql://localhost:5432/api_web_books_database?useTimeZone=true&ServerTimezone=UTC-8
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+      dialect: org.hibernate.dialect.PostgreSQL81Dialect
+      format_sql: true
+    show-sql: true    
