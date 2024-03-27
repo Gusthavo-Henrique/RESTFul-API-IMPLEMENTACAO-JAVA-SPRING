@@ -308,6 +308,152 @@ public class User implements UserDetails {
  Essa interface fornece 4 métodos booleanos que vão ser escritos como "True", e um GrantedAuthority que basicamente vai representar as permissões/autoridades que foi fornecida ao usuário autenticado, 
 esse método vai retornar uma liste de SimpleGrantedAuthority definida pela sua regra de negócio.</p>
 
+<h3>Repositório</h3>
 
+```bash
+package com.gusthavo.apiwebproject.Security.Repository;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.stereotype.Repository;
+
+import com.gusthavo.apiwebproject.Security.SecurityModel.User;
+
+@Repository
+public interface SecurityRepository extends JpaRepository<User,Long>{
+    UserDetails findByUsername(String username);
+}
+```
+
+
+<h3>AuthorizationService</h3>
+
+```bash
+package com.gusthavo.apiwebproject.Security.Services;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.stereotype.Service;
+
+import com.gusthavo.apiwebproject.Security.Repository.SecurityRepository;
+
+@Service
+public class AuthorizationService implements UserDetailsService{
+
+    @Autowired
+    SecurityRepository repository;
+
+    @Override
+    public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+        return repository.findByUsername(username);
+    }
+    
+}
+```
+
+<h3>Token Service</h3>
+
+```bash
+package com.gusthavo.apiwebproject.Security.Services;
+
+import java.util.Date;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import com.auth0.jwt.JWT;
+import com.auth0.jwt.algorithms.Algorithm;
+import com.auth0.jwt.exceptions.JWTCreationException;
+import com.auth0.jwt.exceptions.JWTVerificationException;
+import com.gusthavo.apiwebproject.Security.SecurityModel.User;
+
+@Service
+public class TokenService 
+{
+   @Value("${security.jwt.token.secret-key}")
+   private String secret; 
+
+   @Value("${security.jwt.token.expire-length}")
+   private Long expireLength;
+
+   public String generateToken(User user) {
+    Date now = new Date();
+    Date validity = new Date(now.getTime() + expireLength);
+    try {
+        Algorithm algorithm = Algorithm.HMAC256(secret);
+        String token = JWT.create().withIssuer("meu-token").withSubject(user.getUsername()).withExpiresAt(validity).sign(algorithm);
+        return token;
+    } catch (JWTCreationException e) {
+        throw new RuntimeException("Error while generated token ",e);
+    }
+   }
+
+   public String validated(String token) {
+    try {
+        Algorithm algorithm = Algorithm.HMAC256(secret);
+        return JWT.require(algorithm).withIssuer("meu-token").build().verify(token).getSubject();
+    } catch (JWTVerificationException e) {
+        return "";
+    }
+   }
+}
+```
+
+<h3>Security Filter</h3>
+
+```bash
+package com.gusthavo.apiwebproject.Security.Filter;
+
+import java.io.IOException;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import com.gusthavo.apiwebproject.Security.Repository.SecurityRepository;
+import com.gusthavo.apiwebproject.Security.Services.TokenService;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+
+@Component
+public class SecurityFilter extends OncePerRequestFilter{
+
+    @Autowired
+    private TokenService service;
+
+    @Autowired
+    private SecurityRepository repository;
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+            throws ServletException, IOException {
+        var token = this.recoverToken(request);
+        if(token != null) {
+            var subject = service.validated(token);
+            UserDetails user = repository.findByUsername(subject);
+
+            var authentication = new UsernamePasswordAuthenticationToken(user,null,user.getAuthorities());
+            SecurityContextHolder.getContext().setAuthentication(authentication);
+        }
+    }
+    
+    private String recoverToken(HttpServletRequest request) {
+        var authHeader = request.getHeader("Authorization");
+        if(authHeader == null) {
+            return null;
+        }
+        return authHeader.replace("Bearer ", "");
+    }
+
+}
+```
 
 
