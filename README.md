@@ -372,11 +372,11 @@ import com.gusthavo.apiwebproject.Security.SecurityModel.User;
 @Service
 public class TokenService 
 {
-   @Value("${security.jwt.token.secret-key}")
+   @Value("${security.jwt.token.secret-key:secret}")
    private String secret; 
 
-   @Value("${security.jwt.token.expire-length}")
-   private Long expireLength;
+   @Value("${security.jwt.token.expire-length:3600000L}")
+   private Long expireLength = 3600000L;
 
    public String generateToken(User user) {
     Date now = new Date();
@@ -440,9 +440,11 @@ public class SecurityFilter extends OncePerRequestFilter{
             var subject = service.validated(token);
             UserDetails user = repository.findByUsername(subject);
 
-            var authentication = new UsernamePasswordAuthenticationToken(user,null,user.getAuthorities());
+            var authentication = new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities());
             SecurityContextHolder.getContext().setAuthentication(authentication);
         }
+
+        filterChain.doFilter(request, response);
     }
     
     private String recoverToken(HttpServletRequest request) {
@@ -451,6 +453,117 @@ public class SecurityFilter extends OncePerRequestFilter{
             return null;
         }
         return authHeader.replace("Bearer ", "");
+    }
+
+}
+```
+<h3>Security Configuration</h3>
+
+```bash
+package com.gusthavo.apiwebproject.Security.Configuration;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+
+import com.gusthavo.apiwebproject.Security.Filter.SecurityFilter;
+
+@Configuration
+public class SecurityConfig {
+    
+    @Autowired
+    SecurityFilter securityFilter;
+
+    @Bean
+    SecurityFilterChain securityFilterChain(HttpSecurity httpSecurity) throws Exception {
+        return httpSecurity
+        .csrf(csrf -> csrf.disable())
+        .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+        .authorizeHttpRequests(authorized -> authorized
+        .requestMatchers(HttpMethod.POST, "auth/login").permitAll()
+        .requestMatchers(HttpMethod.POST, "auth/register").permitAll()
+        .requestMatchers(HttpMethod.POST, "api/books").hasRole("ADMIN")
+        .anyRequest().authenticated())
+        .addFilterBefore(securityFilter, UsernamePasswordAuthenticationFilter.class)
+        .build();
+    }
+
+    @Bean
+    AuthenticationManager authenticationManager(AuthenticationConfiguration authenticationConfiguration) throws Exception {
+        return authenticationConfiguration.getAuthenticationManager();
+    }
+
+    @Bean
+    PasswordEncoder encoder() {
+        return new BCryptPasswordEncoder();
+    }
+
+}
+```
+
+<h3>Controller da autenticação</h3>
+
+```bash
+package com.gusthavo.apiwebproject.Security.Controller;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.gusthavo.apiwebproject.Security.Dto.AuthenticationDto;
+import com.gusthavo.apiwebproject.Security.Dto.LoginDto;
+import com.gusthavo.apiwebproject.Security.Dto.RegisterDto;
+import com.gusthavo.apiwebproject.Security.Repository.SecurityRepository;
+import com.gusthavo.apiwebproject.Security.SecurityModel.User;
+import com.gusthavo.apiwebproject.Security.Services.TokenService;
+
+@RestController
+@RequestMapping("/auth")
+public class AuthenticationController {
+    
+    @Autowired
+    AuthenticationManager authenticationManager;
+
+    @Autowired
+    SecurityRepository repository;
+
+    @Autowired
+    TokenService tokenService;
+
+    @PostMapping("/login")
+    public ResponseEntity<?> login(@RequestBody @Validated AuthenticationDto data) {
+        var usernamePassword = new UsernamePasswordAuthenticationToken(data.username(), data.password());
+        var auth = this.authenticationManager.authenticate(usernamePassword);
+        var token = tokenService.generateToken((User) auth.getPrincipal());
+        return ResponseEntity.ok(new LoginDto(token));
+    }
+
+    @PostMapping("/register")
+    public ResponseEntity<?> register(@RequestBody @Validated RegisterDto data) {
+        if(repository.findByUsername(data.username()) != null) {
+            return ResponseEntity.badRequest().build();
+        }
+        String encryptedPassword = new BCryptPasswordEncoder().encode(data.password());
+        User newUser = new User(data.username(), encryptedPassword, data.roles());
+        repository.save(newUser);
+
+        return ResponseEntity.ok().build();
     }
 
 }
